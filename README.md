@@ -2,9 +2,9 @@
 This Contains Machine Learning Project sss
 
 
-# Machine Learning Projects
+Machine Learning Projects Portfolio
 
-This repository contains multiple machine learning projects showcasing predictive models using Python, Scikit-Learn, TensorFlow, and other ML tools.
+This repository contains multiple machine learning projects showcasing predictive models using Python, Scikit-Learn, TensorFlow, and other ML tools. Each project is fully explained in its respective Jupyter Notebook with code, outputs, visualizations, and insights.
 
 ---
 
@@ -16,10 +16,6 @@ A Logistic Regression model that predicts the species of an Iris flower based on
 **Technologies Used:**  
 Python, Pandas, NumPy, Scikit-Learn, Matplotlib
 
-**How to Run:**  
-1. Navigate to `Iris-Flower-Prediction/`  
-2. Install requirements: `pip install -r requirements.txt`  
-3. Run: `python iris_flower_prediction.py`
 
 **Results:**  
 - Accuracy: ~95–98%  
@@ -34,11 +30,6 @@ A Random Forest Classifier predicting whether the S&P 500 will go up or down the
 
 **Technologies Used:**  
 Python, Pandas, NumPy, yfinance, Scikit-Learn, Matplotlib
-
-**How to Run:**  
-1. Navigate to `StockForecast/`  
-2. Install requirements: `pip install -r requirements.txt`  
-3. Run: `python stock_forecast.py`
 
 **Results:**  
 - Precision Score: ~54–57%  
