@@ -51,8 +51,6 @@ It uses feature engineering, data preprocessing, and a Random Forest Regressor t
 **Technologies Used:**  
 Python, Pandas, NumPy, Matplotlib, Scikit-Learn, Joblib
 
-**How to Run:**  
-1. Navigate to `House-Price-Predictor/`  
-2. Install required packages:
+
 
 
