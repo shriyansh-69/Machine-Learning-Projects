@@ -9,7 +9,7 @@ import numpy as np
 import re
 
 # Date and time handling
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Optional: Fetch financial data
 import yfinance as yf
