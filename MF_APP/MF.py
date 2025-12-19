@@ -1029,17 +1029,21 @@ with st.expander("🧠 NeuralTicker", expanded=False):
 
     # 1️⃣ Database connection
     @st.cache_resource(show_spinner=True)
-    def get_connection():
+    def get_connection():        
         cfg = st.secrets["mysql"]
-        conn = mysql.connector.connect(
-            host=cfg["host"],
-            port=cfg["port"],
-            user=cfg["user"],
-            password=cfg["password"],
-            database=cfg["database"],
-        )
-        conn.autocommit = True
-        return conn
+        try:
+            conn = mysql.connector.connect(
+                host=cfg["host"],
+                port=int(cfg["port"]),
+                user=cfg["user"],
+                password=cfg["password"],
+                database=cfg["database"],
+             )
+            conn.autocommit = True
+            return conn
+        except mysql.connector.Error as e:
+            st.error(f"❌ Could not connect to the database: {e}")
+            st.stop() 
 
     # 2️⃣ Cache ticker-specific data
     @st.cache_data(show_spinner=True)
