@@ -1033,11 +1033,11 @@ with st.expander("🧠 NeuralTicker", expanded=False):
         mysql_config = st.secrets["mysql"]
 
         conn = mysql.connector.connect(
-            host=mysql_config["host"],
-            port=mysql_config["port"],
-            user=mysql_config["user"],
-            password=mysql_config["password"],
-            database=mysql_config["database"]
+            host="mainline.proxy.rlwy.net",  # ✅ host ONLY
+            port=55628,                      # ✅ port separately
+            user="root",
+            password="ZJgQgRkGmGkSoVqqhBnWdNPqtfCMnZsg",
+            database="railway"
         )
         cursor = conn.cursor()
 
