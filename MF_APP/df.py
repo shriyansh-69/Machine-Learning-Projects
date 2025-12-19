@@ -8,7 +8,7 @@ try:
         password="ZJgQgRkGmGkSoVqqhBnWdNPqtfCMnZsg",
         database="railway"
     )
-    print("✅ Connected to hoga MySQL!")
+    print("✅ Connected to  MySQL!")
     conn.close()
 except mysql.connector.Error as err:
     print("❌ Connection failed:", err)

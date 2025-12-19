@@ -1027,70 +1027,71 @@ with st.expander("🧠 NeuralTicker", expanded=False):
     sequence_length = 60
     n_future = 30
 
-    # DATABASE + DATA FETCH
-    @st.cache_data(show_spinner=True)
-    def get_fund_data(ticker, period="10y"):        
-        mysql_config = st.secrets["mysql"]
-
+    # 1️⃣ Database connection
+    @st.cache_resource(show_spinner=True)
+    def get_connection():
+        cfg = st.secrets["mysql"]
         conn = mysql.connector.connect(
-            host="mainline.proxy.rlwy.net",  # ✅ host ONLY
-            port=55628,                      # ✅ port separately
-            user="root",
-            password="ZJgQgRkGmGkSoVqqhBnWdNPqtfCMnZsg",
-            database="railway"
+            host=cfg["host"],
+            port=cfg["port"],
+            user=cfg["user"],
+            password=cfg["password"],
+            database=cfg["database"],
         )
+        conn.autocommit = True
+        return conn
+
+    # 2️⃣ Cache ticker-specific data
+    @st.cache_data(show_spinner=True)
+    def get_fund_data(ticker: str, period: str = "10y") -> pd.DataFrame:
+        conn = get_connection()
         cursor = conn.cursor()
 
-        table_name = re.sub(r'[^a-zA-Z0-9_]', '_', ticker).lower()
+        # Safe table name
+        safe_ticker = re.sub(r"[^a-zA-Z0-9_]", "_", ticker).lower()
+        table_name = f"ticker_{safe_ticker}"
 
-        # --- Create table if not exists ---
-        cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
-        if cursor.fetchone() is None:
-            cursor.execute(f"""
-                CREATE TABLE {table_name} (
-                    Date DATE PRIMARY KEY,
-                    Open FLOAT,
-                    High FLOAT,
-                    Low FLOAT,
-                    Close FLOAT,
-                    Volume BIGINT,
-                    Dividends FLOAT,
-                    Stock_Splits FLOAT
-                )
-            """)
-            conn.commit()
+        # Create table if not exists
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                Date DATE PRIMARY KEY,
+                Open FLOAT,
+                High FLOAT,
+                Low FLOAT,
+                Close FLOAT,
+                Volume BIGINT,
+                Dividends FLOAT,
+                Stock_Splits FLOAT
+            )
+        """)
 
-        # --- Fetch existing data ---
-        cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
-        row_count = cursor.fetchone()[0]
+        # Get last stored date
+        cursor.execute(f"SELECT MAX(Date) FROM {table_name}")
+        last_date = cursor.fetchone()[0]
 
-        if row_count > 0:
-            df_db = pd.read_sql(f"SELECT * FROM {table_name} ORDER BY Date ASC", conn, parse_dates=["Date"])
-            df_db.set_index("Date", inplace=True)
-            last_date = df_db.index.max()
+        # Fetch missing data from Yahoo
+        if last_date:
+            start = pd.to_datetime(last_date) + pd.Timedelta(days=1)
+            df_api = yf.download(ticker, start=start, progress=False)
         else:
-            df_db = pd.DataFrame()
-            last_date = None
-
-        # --- Fetch missing data from Yahoo Finance ---
-        if last_date is None:
             df_api = yf.download(ticker, period=period, progress=False)
-        else:
-            start_date = last_date + pd.Timedelta(days=1)
-            today = pd.Timestamp.today().normalize()
-            df_api = yf.download(ticker, start=start_date, progress=False) if start_date <= today else pd.DataFrame()
 
         if not df_api.empty:
             df_api.reset_index(inplace=True)
             df_api["Dividends"] = 0.0
             df_api["Stock_Splits"] = 0.0
             df_api["Volume"] = df_api["Volume"].fillna(0).astype(int)
-            df_api[["Open","High","Low","Close"]] = df_api[["Open","High","Low","Close"]].fillna(0.0)
+            df_api[["Open", "High", "Low", "Close"]] = df_api[["Open", "High", "Low", "Close"]].fillna(0.0)
 
-            data_to_insert = list(df_api[["Date","Open","High","Low","Close","Volume","Dividends","Stock_Splits"]].itertuples(index=False, name=None))
+            rows = list(
+                df_api[["Date", "Open", "High", "Low", "Close", "Volume", "Dividends", "Stock_Splits"]]
+                .itertuples(index=False, name=None)
+            )
 
-            insert_query = f"""
-                INSERT INTO {table_name} (Date, Open, High, Low, Close, Volume, Dividends, Stock_Splits)
+            cursor.executemany(
+                f"""
+                INSERT INTO {table_name}
+                (Date, Open, High, Low, Close, Volume, Dividends, Stock_Splits)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 ON DUPLICATE KEY UPDATE
                     Open=VALUES(Open),
@@ -1100,19 +1101,16 @@ with st.expander("🧠 NeuralTicker", expanded=False):
                     Volume=VALUES(Volume),
                     Dividends=VALUES(Dividends),
                     Stock_Splits=VALUES(Stock_Splits)
-            """
-            cursor.executemany(insert_query, data_to_insert)
-            conn.commit()
+                """,
+                rows
+            )
 
-        df_final = pd.read_sql(f"SELECT * FROM {table_name} ORDER BY Date ASC", conn, parse_dates=["Date"])
-        df_final.set_index("Date", inplace=True)
-
+        df = pd.read_sql(f"SELECT * FROM {table_name} ORDER BY Date ASC", conn, parse_dates=["Date"])
+        df.set_index("Date", inplace=True)
         cursor.close()
-        conn.close()
+        return df[["Open", "High", "Low", "Close", "Volume", "Dividends", "Stock_Splits"]]
 
-        return df_final[["Open","High","Low","Close","Volume","Dividends","Stock_Splits"]]
-
-    # --- LSTM Prediction Functions ---
+    # --- LSTM Helper Functions ---
     def create_sequences_single(data, seq_len, n_future):
         X, Y = [], []
         for i in range(len(data) - seq_len - n_future + 1):
@@ -1148,7 +1146,7 @@ with st.expander("🧠 NeuralTicker", expanded=False):
             X_train, Y_train = create_sequences_single(df_close_scaled[:split_idx], sequence_length, n_future)
             X_test, Y_test = create_sequences_single(df_close_scaled[split_idx:], sequence_length, n_future)
 
-            # --- Build LSTM model ---
+            # Build LSTM model
             model = Sequential([
                 Input(shape=(sequence_length, 1)),
                 LSTM(64, return_sequences=False),
@@ -1156,11 +1154,10 @@ with st.expander("🧠 NeuralTicker", expanded=False):
                 Dense(n_future)
             ])
             model.compile(optimizer="adam", loss="mse")
-
             early_stop = EarlyStopping(patience=10, restore_best_weights=True)
             model.fit(X_train, Y_train, validation_data=(X_test,Y_test), epochs=30, batch_size=16, callbacks=[early_stop], verbose=0)
 
-            # Predict future 30 days
+            # Predict future
             last_seq = df_close_scaled[-sequence_length:].reshape(1, sequence_length, 1)
             future_scaled = model.predict(last_seq)[0]
             future_close = scaler.inverse_transform(future_scaled.reshape(-1,1)).flatten()
@@ -1191,23 +1188,21 @@ with st.expander("🧠 NeuralTicker", expanded=False):
             ax.grid()
             st.pyplot(fig)
 
-
             # --- Download Options ---
             with st.expander("### 💾 Download Options"):
 
-                # Download Plot PNG
+                # Plot PNG
                 buf_png = io.BytesIO()
                 fig.savefig(buf_png, format="png")
+                buf_png.seek(0)
                 st.download_button(
                     label="📥 Download Plot (PNG)",
                     data=buf_png,
                     file_name=f"{ticker}_Prediction.png",
-                    mime='image/png',
-                    key=f"download_plot_png_{ticker}_{datetime.now().timestamp()}"
+                    mime='image/png'
                 )
 
-
-                # Download Plot PDF
+                # Plot PDF
                 buf_pdf = io.BytesIO()
                 fig.savefig(buf_pdf, format="pdf")
                 buf_pdf.seek(0)
@@ -1215,86 +1210,68 @@ with st.expander("🧠 NeuralTicker", expanded=False):
                     label="🗂️ Download Plot (PDF)",
                     data=buf_pdf,
                     file_name=f"{ticker}_Prediction.pdf",
-                    mime='application/pdf',
-                    key=f"download_plot_pdf_{ticker}_{datetime.now().timestamp()}"
+                    mime='application/pdf'
                 )
 
-                # Optional CSV for future prices without index
-                csv_data_simple = future_df.to_csv(index=False).encode()
+                # CSV without index
+                csv_simple = future_df.to_csv(index=False).encode()
                 st.download_button(
                     label="⬇️ Download Predicted Prices (CSV, no index)",
-                    data=csv_data_simple,
+                    data=csv_simple,
                     file_name=f"{ticker}_Prediction.csv",
-                    mime='text/csv',
-                    key=f"download_simple_csv_{ticker}_{datetime.now().timestamp()}"
-                )    
+                    mime='text/csv'
+                )
 
-            future_df_to_download = future_df.copy()
-            future_df_to_download.reset_index(inplace=True)  # 'Date' becomes a column
+            # Display DataFrame with dates
+            future_df_to_download = future_df.copy().reset_index()
+            future_df_to_download.rename(columns={'index': 'Date'}, inplace=True)
 
-            # Display the DataFrame with dates
             st.subheader("📄 Predicted Data")
             st.dataframe(future_df_to_download)
 
-            # Download CSV with dates
-            csv_data_simple = future_df_to_download.to_csv(index=False).encode()  # index=False now correct
+            # CSV with dates
+            csv_with_dates = future_df_to_download.to_csv(index=False).encode()
             st.download_button(
                 label="⬇️ Download Predicted Prices (CSV with Dates)",
-                data=csv_data_simple,
+                data=csv_with_dates,
                 file_name=f"{ticker}_Prediction.csv",
                 mime='text/csv'
             )
-                
-                    
-#--- Analysis Section ---
+
+# --- Analysis Section ---
 with st.expander("📊 Column Operations on Predicted Data", expanded=False):
     if 'future_df' not in st.session_state:
         st.warning("No Data Available. Run the prediction first.")
     else:
         future_df = st.session_state['future_df']
 
-        # --- Form for user input ---
         with st.form("analysis_form"):
             cols_options = list(future_df.columns) + ["All Columns"]
-            selected_cols = st.multiselect(
-                "Select Columns:", options=cols_options, default=["All Columns"]
-            )
-            operation = st.multiselect(
-                "Select Operation:", ["Lowest", "Highest", "Average", "All"], default=["All"]
-            )
+            selected_cols = st.multiselect("Select Columns:", options=cols_options, default=["All Columns"])
+            operation = st.multiselect("Select Operation:", ["Lowest", "Highest", "Average", "All"], default=["All"])
             submitted = st.form_submit_button("Compute Summary")
 
-        # --- Process after form submission ---
         if submitted:
-            # Determine which columns to use
             cols_to_use = future_df.columns if "All Columns" in selected_cols else selected_cols
+            ops_to_apply = ["Lowest", "Highest", "Average"] if "All" in operation else operation
 
-            # Determine which operations to apply
-            operation_to_apply = ["Lowest", "Highest", "Average"] if "All" in operation else operation
-
-            # Compute summary
             summary = {}
             for col in cols_to_use:
                 summary[col] = {}
-                if "Lowest" in operation_to_apply:
+                if "Lowest" in ops_to_apply:
                     summary[col]["Lowest"] = future_df[col].min()
-                if "Highest" in operation_to_apply:
+                if "Highest" in ops_to_apply:
                     summary[col]["Highest"] = future_df[col].max()
-                if "Average" in operation_to_apply:
+                if "Average" in ops_to_apply:
                     summary[col]["Average"] = future_df[col].mean()
 
             df_summary = pd.DataFrame(summary).T
             st.dataframe(df_summary)
 
-            # Prepare CSV for download
-            csv_data = df_summary.reset_index().to_csv(index=False).encode()
-
-            # --- Download button outside the form ---
+            csv_summary = df_summary.reset_index().to_csv(index=False).encode()
             st.download_button(
                 "📥 Download Summary as CSV",
-                data=csv_data,
+                data=csv_summary,
                 file_name="predicted_summary.csv",
-                mime="text/csv",
-                key="download_summary_csv"
+                mime="text/csv"
             )
-
