@@ -1027,9 +1027,9 @@ with st.expander("🧠 NeuralTicker", expanded=False):
     sequence_length = 60
     n_future = 30
 
-    # DATABASE + DATA FETCH
     @st.cache_data(show_spinner=True)
-    def get_fund_data(ticker, period="10y"):        
+    def get_fund_data(ticker, period="10y"):
+
         mysql_config = st.secrets["mysql"]
 
         conn = mysql.connector.connect(
@@ -1038,15 +1038,45 @@ with st.expander("🧠 NeuralTicker", expanded=False):
             user=mysql_config["user"],
             password=mysql_config["password"],
             database=mysql_config["database"]
-            
         )
         cursor = conn.cursor()
 
         table_name = re.sub(r'[^a-zA-Z0-9_]', '_', ticker).lower()
 
-        # --- Create table if not exists ---
+        # --- Check if table exists ---
         cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
-        if cursor.fetchone() is None:
+        table_exists = cursor.fetchone() is not None
+
+        # --- If table exists, fetch existing data ---
+        if table_exists:
+            df_db = pd.read_sql(f"SELECT * FROM {table_name} ORDER BY Date ASC", conn, parse_dates=["Date"])
+            df_db.set_index("Date", inplace=True)
+            last_date = df_db.index.max()
+        else:
+            df_db = pd.DataFrame()
+            last_date = None
+
+        # --- Fetch data from Yahoo Finance ---
+        if last_date is None:
+            # Table empty or does not exist → fetch full history
+            df_api = yf.download(ticker, period=period, progress=False)
+        else:
+            # Table has data → fetch only new data after last_date
+            start_date = last_date + pd.Timedelta(days=1)
+            today = pd.Timestamp.today().normalize()
+            if start_date <= today:
+                df_api = yf.download(ticker, start=start_date, progress=False)
+            else:
+                df_api = pd.DataFrame()  # no new data
+
+        # --- EDGE CASE: invalid ticker ---
+        if df_api.empty and df_db.empty:
+            cursor.close()
+            conn.close()
+            return None  # invalid ticker, do NOT create table
+
+        # --- Create table if it does not exist and data is valid ---
+        if not table_exists:
             cursor.execute(f"""
                 CREATE TABLE {table_name} (
                     Date DATE PRIMARY KEY,
@@ -1061,26 +1091,7 @@ with st.expander("🧠 NeuralTicker", expanded=False):
             """)
             conn.commit()
 
-        # --- Fetch existing data ---
-        cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
-        row_count = cursor.fetchone()[0]
-
-        if row_count > 0:
-            df_db = pd.read_sql(f"SELECT * FROM {table_name} ORDER BY Date ASC", conn, parse_dates=["Date"])
-            df_db.set_index("Date", inplace=True)
-            last_date = df_db.index.max()
-        else:
-            df_db = pd.DataFrame()
-            last_date = None
-
-        # --- Fetch missing data from Yahoo Finance ---
-        if last_date is None:
-            df_api = yf.download(ticker, period=period, progress=False)
-        else:
-            start_date = last_date + pd.Timedelta(days=1)
-            today = pd.Timestamp.today().normalize()
-            df_api = yf.download(ticker, start=start_date, progress=False) if start_date <= today else pd.DataFrame()
-
+        # --- Insert new data from Yahoo if exists ---
         if not df_api.empty:
             df_api.reset_index(inplace=True)
             df_api["Dividends"] = 0.0
@@ -1088,23 +1099,28 @@ with st.expander("🧠 NeuralTicker", expanded=False):
             df_api["Volume"] = df_api["Volume"].fillna(0).astype(int)
             df_api[["Open","High","Low","Close"]] = df_api[["Open","High","Low","Close"]].fillna(0.0)
 
-            data_to_insert = list(df_api[["Date","Open","High","Low","Close","Volume","Dividends","Stock_Splits"]].itertuples(index=False, name=None))
+            # --- Only insert rows strictly after last_date (safety) ---
+            if last_date is not None:
+                df_api = df_api[df_api['Date'] > last_date]
 
-            insert_query = f"""
-                INSERT INTO {table_name} (Date, Open, High, Low, Close, Volume, Dividends, Stock_Splits)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                ON DUPLICATE KEY UPDATE
-                    Open=VALUES(Open),
-                    High=VALUES(High),
-                    Low=VALUES(Low),
-                    Close=VALUES(Close),
-                    Volume=VALUES(Volume),
-                    Dividends=VALUES(Dividends),
-                    Stock_Splits=VALUES(Stock_Splits)
-            """
-            cursor.executemany(insert_query, data_to_insert)
-            conn.commit()
+            if not df_api.empty:
+                data_to_insert = list(df_api[["Date","Open","High","Low","Close","Volume","Dividends","Stock_Splits"]].itertuples(index=False, name=None))
+                insert_query = f"""
+                    INSERT INTO {table_name} (Date, Open, High, Low, Close, Volume, Dividends, Stock_Splits)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON DUPLICATE KEY UPDATE
+                        Open=VALUES(Open),
+                        High=VALUES(High),
+                        Low=VALUES(Low),
+                        Close=VALUES(Close),
+                        Volume=VALUES(Volume),
+                        Dividends=VALUES(Dividends),
+                        Stock_Splits=VALUES(Stock_Splits)
+                """
+                cursor.executemany(insert_query, data_to_insert)
+                conn.commit()
 
+        # --- Fetch final combined data ---
         df_final = pd.read_sql(f"SELECT * FROM {table_name} ORDER BY Date ASC", conn, parse_dates=["Date"])
         df_final.set_index("Date", inplace=True)
 
@@ -1134,8 +1150,13 @@ with st.expander("🧠 NeuralTicker", expanded=False):
 
         with st.spinner("Fetching & processing data..."):
             df = get_fund_data(ticker)
-            df['Average_Price'] = df[['Open','High','Low','Close']].mean(axis=1)
 
+            if df is None:
+                st.error("❌ Invalid Ticker. No data found.")
+                st.stop()
+
+            df['Average_Price'] = df[['Open','High','Low','Close']].mean(axis=1)
+            
             df_close = df[['Close']].ffill().bfill()
             if len(df_close) < sequence_length + n_future + 1:
                 st.error("Not enough data for training.")
@@ -1264,6 +1285,14 @@ with st.expander("📊 Column Operations on Predicted Data", expanded=False):
                 "Select Operation:", ["Lowest", "Highest", "Average", "All"], default=["All"]
             )
             submitted = st.form_submit_button("Compute Summary")
+
+            df = get_fund_data(ticker)
+
+            if df is None:
+                st.error("❌ Invalid Ticker. No data found.")
+                st.stop()
+
+
 
         # --- Process after form submission ---
         if submitted:
