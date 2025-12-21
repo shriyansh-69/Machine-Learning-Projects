@@ -87,48 +87,54 @@ with st.expander("📌 Mutual Fund / Current Price Checker", expanded=False):
 
 with st.expander("📅 Get Price on Specific Date", expanded=False):
 
-    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)  # adds top spacing
-    
-    def get_price_on_date(fund_name, date_str):
+    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+
+    def get_price_on_date(fund_ticker, target_date):
         try:
-            fund = yf.Ticker(fund_name)        
+            fund = yf.Ticker(fund_ticker)
             data = fund.history(period="max")
 
             if data.empty:
-                return "No Data Available"
+                return None, None, None
 
-            data.index = data.index.strftime("%Y-%m-%d")
+            # Ensure target_date is Timestamp
+            target_date = pd.Timestamp(target_date)
 
-            if date_str in data.index:
-                return data.loc[date_str]['Close']
+            if target_date in data.index:
+                price = data.loc[target_date, "Close"]
+                actual_date = target_date
+            else:
+                data_before = data.loc[:target_date]
+                if data_before.empty:
+                    return None, None, None
+                actual_date = data_before.index[-1]
+                price = data_before.iloc[-1]["Close"]
 
-            previous_dates = [d for d in data.index if d <= date_str]
-            if previous_dates:
-                nearest = previous_dates[-1]
-                return f"{data.loc[nearest]['Close']} (Nearest available date: {nearest})"
+            currency = fund.info.get("currency", "Unknown")
+            return price, actual_date.date(), currency
 
-            return "No Data Available For This Date"
+        except Exception:
+            return None, None, None
 
-        except Exception as e:
-            return f"Error: {e}"
-
-    st.write("### Get Price on Specific Date")
-
-    fund_name = st.text_input(
-        "Which Fund To Want To TakeOut Price Of :- "
-    ).upper()
-
-    date_input = st.date_input("Select the Date:")
+    fund_name = st.text_input("Enter Fund/Ticker:").upper()
+    selected_date = st.date_input("Select the Date:")
 
     if st.button("Get Price on Date"):
         if not fund_name:
-            st.error("Please enter a valid fund name")
+            st.error("Please enter a valid fund name.")
         else:
-            date_str = date_input.strftime("%Y-%m-%d")
-            price = get_price_on_date(fund_name, date_str)
-            st.write(
-                f"Price/NAV of **{fund_name}** on **{date_str}** is: **{price}**"
-            )
+            price, actual_date, currency = get_price_on_date(fund_name, selected_date)
+
+            if price is None:
+                st.error("No data available for this fund/date.")
+            else:
+                if actual_date != selected_date:
+                    st.info(f"No data on selected date. Showing nearest available date.")
+
+                st.success(
+                    f"Price/NAV of **{fund_name}** on **{actual_date}** is "
+                    f"**{price:.2f} {currency}**"
+                )
 
 #------------------------------------Block-3------------------------------------------------------------------
 
