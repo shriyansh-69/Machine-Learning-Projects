@@ -40,7 +40,6 @@ st.set_page_config(
     page_title="Mutual_Fund_Prediction_Model",
     page_icon= "📚",
     layout = "wide" 
-
 )
 
 
@@ -282,7 +281,7 @@ with st.expander("📊 Mutual Fund Analyzer For Recent Day's ", expanded=False):
 
                 csv = result.to_csv().encode()
                 st.download_button(
-                    "📥 Download Analysis as CSV",
+                    "Download Analysis as CSV",
                     data=csv,
                     file_name=f"{Fund_name}_analysis.csv",
                     mime="text/csv"
@@ -827,7 +826,7 @@ with st.expander("🧮 Profit Or Loss Analyzer", expanded=False):
                     # CSV
                     csv_data = df_prepare[[price_type]].to_csv().encode()
                     st.download_button(
-                        " Download Plot Data (CSV)",
+                        "Download Plot Data (CSV)",
                         data=csv_data,
                         file_name=f"{Fund_name}_{price_type}_data.csv",
                         mime="text/csv"
@@ -972,7 +971,7 @@ with st.expander("💹 Graph Plotter On Selected Day's", expanded=False):
                     fig.savefig(buf_png, format="png")
                     buf_png.seek(0)
                     st.download_button(
-                        " Download Plot (PNG)",
+                        "Download Plot (PNG)",
                         data=buf_png,
                         file_name=f"{f_name}_{price_type}_plot.png",
                         mime="image/png"
@@ -983,7 +982,7 @@ with st.expander("💹 Graph Plotter On Selected Day's", expanded=False):
                     fig.savefig(buf_pdf, format="pdf")
                     buf_pdf.seek(0)
                     st.download_button(
-                        " Download Plot (PDF)",
+                        "Download Plot (PDF)",
                         data=buf_pdf,
                         file_name=f"{f_name}_{price_type}_plot.pdf",
                         mime="application/pdf"
@@ -1007,7 +1006,7 @@ with st.expander("💹 Graph Plotter On Selected Day's", expanded=False):
                 csv_data = df_ready.to_csv(index=True).encode("utf-8")
 
                 st.download_button(
-                    label="⬇️ Download Raw Data (CSV)",
+                    label="Download Raw Data (CSV)",
                     data=csv_data,
                     file_name=f"{f_name}_raw_data.csv",
                     mime="text/csv"
@@ -1255,13 +1254,13 @@ with st.expander("🧠 NeuralTicker", expanded=False):
             future_df_to_download.reset_index(inplace=True)  # 'Date' becomes a column
 
             # Display the DataFrame with dates
-            st.subheader("📄 Predicted Data")
+            st.subheader("Predicted Data")
             st.dataframe(future_df_to_download)
 
             # Download CSV with dates
             csv_data_simple = future_df_to_download.to_csv(index=False).encode()  # index=False now correct
             st.download_button(
-                label="⬇️ Download Predicted Prices (CSV with Dates)",
+                label="Download Predicted Prices (CSV with Dates)",
                 data=csv_data_simple,
                 file_name=f"{ticker}_Prediction.csv",
                 mime='text/csv'
