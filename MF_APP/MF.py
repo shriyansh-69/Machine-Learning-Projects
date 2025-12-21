@@ -50,7 +50,7 @@ def get_current_price(fund_ticker):
         fund = yf.Ticker(fund_ticker)
         data = fund.history(period="1d")
 
-        if not data.empty:
+        if  data.empty:
             return None,None
         
         price = data["Close"].iloc[-1]
@@ -59,7 +59,7 @@ def get_current_price(fund_ticker):
         return price,currency
 
     except Exception as e:
-        return f"Error: {e}"
+        return None, None
 
 # -------- EXPANDER ----------
 with st.expander("📌 Mutual Fund / Current Price Checker", expanded=False):
