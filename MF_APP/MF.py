@@ -335,13 +335,16 @@ with st.expander("📊 Mutual Fund Analyzer For Recent Day's ", expanded=False):
 
     st.divider()
 
-    # ---------------- PLOT ----------------
-
-    plot_price_options = ['Open', 'Close', 'High', 'Low', 'Average_Price']
     
+
+# ---------------- PLOT ----------------
+
+   # Options for plotting (without "All")
+    plot_price_options = ['Open', 'Close', 'High', 'Low', 'Average_Price']
+
     plot_price_type_selected = st.selectbox(
         "Select ONE Price Type to Plot:",
-        options=price_type_options,
+        options=plot_price_options,
         key="plot_only"
     )
 
@@ -360,6 +363,7 @@ with st.expander("📊 Mutual Fund Analyzer For Recent Day's ", expanded=False):
             st.error("Please enter a ticker to plot.")
             st.stop()
 
+        # Generate plot
         fig = plot_price_type(
             plot_price_type_selected,
             Fund_name,
@@ -393,26 +397,27 @@ with st.expander("📊 Mutual Fund Analyzer For Recent Day's ", expanded=False):
             )
 
             # CSV for plot data
-            data = yf.Ticker(Fund_name).history(period='max')
-            data['Average_Price'] = data[['Open','High','Low','Close']].mean(axis=1)
+            data_plot = yf.Ticker(Fund_name).history(period='max')
+            data_plot['Average_Price'] = data_plot[['Open','High','Low','Close']].mean(axis=1)
             if n_day is not None:
-                data = data.tail(n_day)
+                data_plot = data_plot.tail(n_day)
+
             st.download_button(
                 "Download Plot Data (CSV)",
-                data=data[[plot_price_type_selected]].to_csv().encode(),
+                data=data_plot[[plot_price_type_selected]].to_csv().encode(),
                 file_name=f"{Fund_name}_{plot_price_type_selected}_data.csv",
                 mime="text/csv"
             )
 
-         # ---------------- Raw Data (Last n Days or All) ----------------
+        # ---------------- Raw Data (Last n Days or All) ----------------
         with st.expander("### 📄 Raw Data (Selected Days)"):
-            if data.empty:
+            if data_plot.empty:
                 st.warning("No data available for the selected date range.")
             else:
-                st.dataframe(data, use_container_width=True)
+                st.dataframe(data_plot, use_container_width=True)
                 st.download_button(
                     "Download Raw Data (CSV)",
-                    data=data.to_csv(index=True).encode("utf-8"),
+                    data=data_plot.to_csv(index=True).encode("utf-8"),
                     file_name=f"{Fund_name}_raw_data.csv",
                     mime="text/csv"
                 )
