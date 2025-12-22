@@ -53,13 +53,23 @@ def get_current_price(fund_ticker):
         if data.empty:
             return None, None
 
-        price = data["Close"].iloc[-1] if "Close" in data else data["Adj Close"].iloc[-1]
-        currency = data.attrs.get("currency", "unknown")
+        price = (
+            data["Close"].iloc[-1]
+            if "Close" in data
+            else data["Adj Close"].iloc[-1]
+        )
+
+        currency = data.attrs.get("currency")
+
+        # fallback if currency still missing
+        if currency is None:
+            currency = fund.fast_info.get("currency", "unknown")
 
         return price, currency
 
     except Exception:
         return None, None
+
 
 # -------- EXPANDER ----------
 with st.expander("📌 Mutual Fund / Current Price Checker", expanded=False):
