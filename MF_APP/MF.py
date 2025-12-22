@@ -336,6 +336,9 @@ with st.expander("📊 Mutual Fund Analyzer For Recent Day's ", expanded=False):
     st.divider()
 
     # ---------------- PLOT ----------------
+
+    plot_price_options = ['Open', 'Close', 'High', 'Low', 'Average_Price']
+    
     plot_price_type_selected = st.selectbox(
         "Select ONE Price Type to Plot:",
         options=price_type_options,
