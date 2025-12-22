@@ -676,232 +676,201 @@ with st.expander("📈 Mutual Fund Analyzer For Selected Date's", expanded=False
     
 # --------------------------------------------------------------- Block-5 ------------------------------------------------------------------
 
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import matplotlib.pyplot as plt
+import io
+
+# ------------------- SESSION STATE -------------------
+
+if "df" not in st.session_state:
+    st.session_state.df = None
+
+if "analysis" not in st.session_state:
+    st.session_state.analysis = None
 
 # ------------------- FUNCTIONS -------------------
 
-def fetch_fund_data(Fund_name):    
-    dat = yf.Ticker(Fund_name)
-    FUND_name = dat.history(period='max')
+def fetch_fund_data(ticker):
+    data = yf.Ticker(ticker).history(period="10y")
 
-    # Drop Dividends and Stock Splits only if they exist
+    df = data.drop(columns=[c for c in ["Dividends", "Stock Splits"] if c in data.columns])
+    df["Average"] = df[["Open", "High", "Low", "Close"]].mean(axis=1)
 
-    df_prepare = FUND_name.drop(columns=[c for c in ['Dividends','Stock Splits'] if c in FUND_name.columns])
-    df_prepare['Average'] = df_prepare[['Open', 'High', 'Low', 'Close']].mean(axis=1)
-    df_prepare.index = pd.to_datetime(df_prepare.index)
-    df_prepare.index = df_prepare.index.tz_convert(None)  # remove tz info
-    return df_prepare
+    df.index = pd.to_datetime(df.index).tz_localize(None)
+    return df
 
+def get_trading_day(index, selected_date):
+    """Nearest trading day ON or BEFORE selected date"""
+    return index.asof(selected_date)
 
-def price_analysis(df_prepare, Buy_date, Sell_date, price_type='Close'):
-    """Analyze buy-sell price, ROI, and profit/loss."""
-    nearest_buy_date = df_prepare.index.asof(Buy_date)
-    nearest_sell_date = df_prepare.index.asof(Sell_date)
+def price_analysis(df, buy_date, sell_date, price_type):
+    buy_day = get_trading_day(df.index, buy_date)
+    sell_day = get_trading_day(df.index, sell_date)
 
-    if pd.isna(nearest_buy_date):
-        return "❌ No data available before Buy date."
-    if pd.isna(nearest_sell_date):
-        return "❌ No data available before Sell date."
+    if pd.isna(buy_day):
+        return "❌ No trading data before Buy date."
+    if pd.isna(sell_day):
+        return "❌ No trading data before Sell date."
 
-    Buy_price = float(df_prepare.loc[nearest_buy_date, price_type])
-    Sell_price = float(df_prepare.loc[nearest_sell_date, price_type])
+    buy_price = float(df.loc[buy_day, price_type])
+    sell_price = float(df.loc[sell_day, price_type])
 
-    Result = Sell_price - Buy_price
-    ROI = (Result / Buy_price) * 100
+    result = sell_price - buy_price
+    roi = (result / buy_price) * 100
 
-    status = "🟢 PROFIT" if Result > 0 else ("🔴 LOSS" if Result < 0 else "⚪ NO PROFIT / NO LOSS")
+    status = "🟢 PROFIT" if result > 0 else ("🔴 LOSS" if result < 0 else "⚪ NO PROFIT / NO LOSS")
 
     return {
         "status": status,
-        "Buy_date": nearest_buy_date,
-        "Sell_date": nearest_sell_date,
-        "Buy_price": Buy_price,
-        "Sell_price": Sell_price,
-        "Result": Result,
-        "ROI": ROI
+        "requested_buy": buy_date,
+        "requested_sell": sell_date,
+        "actual_buy": buy_day,
+        "actual_sell": sell_day,
+        "buy_price": buy_price,
+        "sell_price": sell_price,
+        "result": result,
+        "roi": roi
     }
 
-def plot_price(df_prepare, buy_date, sell_date, price_type='Close'):
-    """Plot price movement between buy and sell dates."""
-    buy_nearest = df_prepare.index.asof(buy_date)
-    sell_nearest = df_prepare.index.asof(sell_date)
-    df_slice = df_prepare.loc[buy_nearest:sell_nearest]
+def plot_price(df, buy_day, sell_day, price_type):
+    df_slice = df.loc[buy_day:sell_day]
 
-    fig, ax = plt.subplots(figsize=(14,6))
-    ax.plot(df_slice.index, df_slice[price_type], label='NAV Price', color='blue')
-    ax.scatter(buy_nearest, df_prepare.loc[buy_nearest, price_type], color='orange', s=80, label='Buy')
-    ax.scatter(sell_nearest, df_prepare.loc[sell_nearest, price_type], color='green', s=80, label='Sell')
-    ax.set_title("Price Analysis (BUY → SELL)")
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.plot(df_slice.index, df_slice[price_type], label="Price", color="blue")
+    ax.scatter(buy_day, df.loc[buy_day, price_type], color="orange", s=80, label="Buy")
+    ax.scatter(sell_day, df.loc[sell_day, price_type], color="green", s=80, label="Sell")
+
+    ax.set_title("Price Movement (Buy → Sell)")
     ax.set_xlabel("Date")
     ax.set_ylabel("Price")
     ax.legend()
     ax.grid(True)
+
     return fig
 
-# ------------------- Interface -------------------
+# ------------------- STREAMLIT UI -------------------
 
 with st.expander("🧮 Profit Or Loss Analyzer", expanded=False):
 
-    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)  # adds top spacing
-
-    Fund_name = st.text_input(
-        "Enter Fund / Stock Ticker (e.g., TSLA, ARKK):"
-    ).upper()
+    ticker = st.text_input("Enter Stock / Fund Ticker (e.g. TSLA, SPY)").upper()
 
     price_type = st.selectbox(
-        "Select Price Type:",
+        "Select Price Type",
         ["Open", "High", "Low", "Close", "Average"],
         index=3
     )
 
     col1, col2 = st.columns(2)
     with col1:
-        Buy_Date = st.date_input("Select Buy Date")
+        buy_date = st.date_input("Buy Date")
     with col2:
-        Sell_Date = st.date_input("Select Sell Date")
+        sell_date = st.date_input("Sell Date")
 
-    # Convert Streamlit dates to pandas timestamps
-    if Buy_Date and Sell_Date:
-        Buy_Date_ts = pd.Timestamp(Buy_Date)
-        Sell_Date_ts = pd.Timestamp(Sell_Date)
+    buy_ts = pd.Timestamp(buy_date)
+    sell_ts = pd.Timestamp(sell_date)
 
     st.divider()
 
-    # ---------------- ANALYSIS ----------------
+    # ---------------- ANALYZE ----------------
     if st.button("Analyze", key="analyze_btn"):
-        if not Fund_name:
-            st.error("Please enter a valid ticker/fund name.")
-        else:
-            try:
-                df_prepare = fetch_fund_data(Fund_name)
-            except Exception as e:
-                st.error(f"Error fetching data: {e}")
-                st.stop()
+        if not ticker:
+            st.error("Please enter a valid ticker.")
+            st.stop()
 
-            analysis = price_analysis(
-                df_prepare,
-                Buy_Date_ts,
-                Sell_Date_ts,
-                price_type
+        try:
+            st.session_state.df = fetch_fund_data(ticker)
+        except Exception as e:
+            st.error(f"Data fetch failed: {e}")
+            st.stop()
+
+        st.session_state.analysis = price_analysis(
+            st.session_state.df, buy_ts, sell_ts, price_type
+        )
+
+        if isinstance(st.session_state.analysis, str):
+            st.error(st.session_state.analysis)
+            st.session_state.analysis = None
+            st.stop()
+
+        analysis = st.session_state.analysis
+
+        st.success(analysis["status"])
+
+        # Market closed info
+        if analysis["requested_buy"].date() != analysis["actual_buy"].date():
+            st.info(
+                f"ℹ️ Market closed on {analysis['requested_buy'].date()}, "
+                f"used {analysis['actual_buy'].date()} instead."
             )
 
-            if isinstance(analysis, dict):
-                st.success(analysis["status"])
+        if analysis["requested_sell"].date() != analysis["actual_sell"].date():
+            st.info(
+                f"ℹ️ Market closed on {analysis['requested_sell'].date()}, "
+                f"used {analysis['actual_sell'].date()} instead."
+            )
 
-                st.write(
-                    f"Buy Date: {analysis['Buy_date'].date()} → "
-                    f"Price: {analysis['Buy_price']:.2f}"
-                )
-                st.write(
-                    f"Sell Date: {analysis['Sell_date'].date()} → "
-                    f"Price: {analysis['Sell_price']:.2f}"
-                )
+        st.write(
+            f"Buy Date Used: {analysis['actual_buy'].date()} → "
+            f"Price: {analysis['buy_price']:.2f}"
+        )
+        st.write(
+            f"Sell Date Used: {analysis['actual_sell'].date()} → "
+            f"Price: {analysis['sell_price']:.2f}"
+        )
 
-                if analysis['Result'] >= 0:
-                    st.success(f"Profit: {analysis['Result']:.2f} ↑")
-                else:
-                    st.error(f"Loss: {analysis['Result']:.2f} ↓")
+        if analysis["result"] >= 0:
+            st.success(f"Profit: {analysis['result']:.2f}")
+        else:
+            st.error(f"Loss: {analysis['result']:.2f}")
 
-                st.write(f"ROI: {analysis['ROI']:.2f}%")
+        st.write(f"ROI: {analysis['roi']:.2f}%")
 
-                df_analysis = pd.DataFrame([analysis])
-                df_analysis['Buy_date'] = df_analysis['Buy_date'].dt.date
-                df_analysis['Sell_date'] = df_analysis['Sell_date'].dt.date
+        # Download analysis CSV
+        out_df = pd.DataFrame([analysis])
+        out_df["actual_buy"] = out_df["actual_buy"].dt.date
+        out_df["actual_sell"] = out_df["actual_sell"].dt.date
 
-                # CSV download
-                csv = df_analysis.to_csv(index=False).encode()
-                st.download_button(
-                    "Download Buy-Sell Analysis as CSV",
-                    data=csv,
-                    file_name=f"{Fund_name}_buy_sell_analysis.csv",
-                    mime="text/csv"
-                )
-            else:
-                st.error(analysis)
+        st.download_button(
+            "Download Buy-Sell Analysis CSV",
+            data=out_df.to_csv(index=False).encode(),
+            file_name=f"{ticker}_buy_sell_analysis.csv",
+            mime="text/csv",
+            key="analysis_csv"
+        )
 
     st.divider()
 
     # ---------------- PLOT ----------------
     if st.button("Show Plot", key="plot_btn"):
-        if not Fund_name:
-            st.error("Please enter a valid ticker/fund name.")
-        else:
-            try:
-                df_prepare = fetch_fund_data(Fund_name)
-            except Exception as e:
-                st.error(f"Error fetching data: {e}")
-                st.stop()
+        if st.session_state.analysis is None:
+            st.error("Please run analysis first.")
+            st.stop()
 
-            fig = plot_price(
-                df_prepare,
-                Buy_Date_ts,
-                Sell_Date_ts,
-                price_type
+        fig = plot_price(
+            st.session_state.df,
+            st.session_state.analysis["actual_buy"],
+            st.session_state.analysis["actual_sell"],
+            price_type
+        )
+
+        st.pyplot(fig)
+
+        with st.expander("💾 Download Plot"):
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png")
+            buf.seek(0)
+
+            st.download_button(
+                "Download Plot (PNG)",
+                data=buf,
+                file_name=f"{ticker}_{price_type}_plot.png",
+                mime="image/png",
+                key="plot_png"
             )
-            st.pyplot(fig)
 
 
-
-            with st.expander("💾 Download Options", expanded=False):
-
-                if fig is not None:
-
-                    # PNG
-                    buf_png = io.BytesIO()
-                    fig.savefig(buf_png, format="png")
-                    buf_png.seek(0)
-                    st.download_button(
-                        "Download Plot (PNG)",
-                        data=buf_png,
-                        file_name=f"{Fund_name}_{price_type}_plot.png",
-                        mime="image/png"
-                    )
-
-                    # PDF
-                    buf_pdf = io.BytesIO()
-                    fig.savefig(buf_pdf, format="pdf")
-                    buf_pdf.seek(0)
-                    st.download_button(
-                        "Download Plot (PDF)",
-                        data=buf_pdf,
-                        file_name=f"{Fund_name}_{price_type}_plot.pdf",
-                        mime="application/pdf"
-                    )
-
-                    # CSV
-                    csv_data = df_prepare[[price_type]].to_csv().encode()
-                    st.download_button(
-                        "Download Plot Data (CSV)",
-                        data=csv_data,
-                        file_name=f"{Fund_name}_{price_type}_data.csv",
-                        mime="text/csv"
-                    )
-
-
-            # ---------------- FILTER RAW DATA BY DATE ----------------
-            filtered_df = df_prepare.copy()
-
-            if Buy_Date_ts:
-                filtered_df = filtered_df[filtered_df.index >= Buy_Date_ts]
-            if Sell_Date_ts:
-                filtered_df = filtered_df[filtered_df.index <= Sell_Date_ts]
-
-
-            # ---------------- SHOW FILTERED RAW DATA ----------------
-            with st.expander("📄 Raw Data (Selected Days Only)"):
-
-                if filtered_df.empty:
-                    st.warning("No data available for the selected date range.")
-                else:
-                    st.dataframe(filtered_df, use_container_width=True)
-
-                    # Download filtered raw data
-                    raw_csv = filtered_df.to_csv(index=True).encode("utf-8")
-                    st.download_button(
-                        label="Download Selected Days Data (CSV)",
-                        data=raw_csv,
-                        file_name=f"{Fund_name}_raw_data_{start_date}_{end_date}.csv",
-                        mime="text/csv"
-                    )
 #-------------------------------------------------------------------------- Block - 6 -------------------------------------------------------------------------------------
 
 with st.expander("💹 Graph Plotter On Selected Day's", expanded=False):
