@@ -8,16 +8,40 @@ A Streamlit web app that predicts the future price/NAV of mutual funds and allow
 
 ## Features
 
-- Get the **current NAV** of any mutual fund with currency info.
-- Get the **price/NAV on a specific date**, with nearest-date handling.
-- Analyze **Recent Day's**  And Also **Selected Date** To Do  Operation's On The Selected Column's. 
-- Calculates the buy and sell prices, **determines profit or loss**, **computes ROI**, and returns a summary for a selected date range and price type.
-- **Visualizations** of predicted prices.
-- Allows users to **plot selected price types with optional moving averages**** for a ticker over a date range and download the chart and data.
-- Provides an **LSTM-based future price prediction** for a ticker, displays signals (Buy/Hold/Sell), plots predictions, and allows analysis and download of predicted data.
+- Fetches current NAV of any mutual fund with currency details.
+- Retrieves historical NAV for a specific date with nearest-date handling.
+- Allows custom analysis on recent or selected date ranges. 
+- Calculates :
+   - Buy & Sell price
+   - Profit / Loss
+   - ROI for a selected period
+- Interactive visualizations of historical and predicted prices.
+- Optional moving average overlays and data.
+-  **LSTM-based future price prediction**  With:
+     - Trend plots
+     - Buy / Hold / Sell signals
+- Downloadable:
+   - Charts
+   - Historical & predicted data
+
 
 
 ---
+
+--- 
+
+## Model And Approach
+- Historical NAV data is collected using yfinance
+- Data is preprocessed and scaled
+- An LSTM neural network is used to capture temporal patterns
+- Model performance is evaluated using train-test split
+- Predictions are generated for future time steps and visualized
+
+
+
+--- 
+
+--- 
 
 ## Screenshots
 
@@ -31,11 +55,20 @@ A Streamlit web app that predicts the future price/NAV of mutual funds and allow
 
 ## Technologies Used
 
-- streamlit
-- pandas
-- numpy
-- yfinance
-- tensorflow
-- scikit-learn
-- mysql-connector-python
-- matplotlib  
+- Frontend & Deployment: Streamlit
+- Data Processing: Pandas, NumPy
+- Data Source: yfinance
+- Machine Learning: Scikit-learn
+- Deep Learning: TensorFlow (LSTM)
+- Database: MySQL
+- Visualization: Matplotlib
+
+---
+
+---
+
+## Result
+
+- The application successfully provides end-to-end mutual fund analysis, combining data retrieval, ML-based prediction, visualization, and deployment in a user-friendly interface.
+
+---
